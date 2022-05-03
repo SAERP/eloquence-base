@@ -98,7 +98,10 @@ class Joiner implements JoinerContract
     {
         $relation = $parent->{$segment}();
         $related = $relation->getRelated();
-        $table = $related->getTable() . ' as ' .$relation->getRelationName() ;
+        $table = $related->getTable();
+        if($relation instanceof BelongsTo){
+            $table = $related->getTable() . ' as ' .$relation->getRelationName() ;
+        }
 
         if ($relation instanceof BelongsToMany || $relation instanceof HasManyThrough) {
             $this->joinIntermediate($parent, $relation, $type);
