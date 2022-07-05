@@ -57,8 +57,13 @@ class Joiner implements JoinerContract
     {
         $related = $this->model;
 
-        foreach (explode('.', $target) as $segment) {
-            $related = $this->joinSegment($related, $segment, $type);
+        $arr = explode('.', $target);
+        foreach ($arr as $key => $segment) {
+            $par = "";
+            if($key != 0){
+                $par = $arr[$key - 1];
+            }
+            $related = $this->joinSegment($related, $segment, $type, $par);
         }
 
         return $related;
@@ -94,7 +99,7 @@ class Joiner implements JoinerContract
      * @param  string $type
      * @return Model
      */
-    protected function joinSegment(Model $parent, $segment, $type)
+    protected function joinSegment(Model $parent, $segment, $type, $par = "")
     {
         $relation = $parent->{$segment}();
         $related = $relation->getRelated();
@@ -107,7 +112,7 @@ class Joiner implements JoinerContract
             $this->joinIntermediate($parent, $relation, $type);
         }
 
-        if (!$this->alreadyJoined($join = $this->getJoinClause($parent, $relation, $table, $type))) {
+        if (!$this->alreadyJoined($join = $this->getJoinClause($parent, $relation, $table, $type, $par))) {
             $this->query->joins[] = $join;
         }
 
@@ -134,9 +139,9 @@ class Joiner implements JoinerContract
      * @param  string $table
      * @return Join
      */
-    protected function getJoinClause(Model $parent, Relation $relation, $table, $type)
+    protected function getJoinClause(Model $parent, Relation $relation, $table, $type, $par = "")
     {
-        [$fk, $pk] = $this->getJoinKeys($relation);
+        [$fk, $pk] = $this->getJoinKeys($relation, $par);
 
         $join = (new Join($this->query, $type, $table))->on($fk, '=', $pk);
 
@@ -188,7 +193,7 @@ class Joiner implements JoinerContract
      *
      * @throws LogicException
      */
-    protected function getJoinKeys(Relation $relation)
+    protected function getJoinKeys(Relation $relation, $par)
     {
         if ($relation instanceof MorphTo) {
             throw new LogicException('MorphTo relation cannot be joined.');
@@ -199,7 +204,11 @@ class Joiner implements JoinerContract
         }
 
         if ($relation instanceof BelongsTo) {
-            return [$relation->getQualifiedForeignKeyName(), $relation->getRelationName().'.'.$relation->getOwnerKeyName()];
+            $foreign = $relation->getQualifiedForeignKeyName();
+            if($par != ""){
+                $foreign = $par . "." . $relation->getForeignKeyName();
+            }
+            return [$foreign, $relation->getRelationName().'.'.$relation->getOwnerKeyName()];
         }
 
         if ($relation instanceof BelongsToMany) {
