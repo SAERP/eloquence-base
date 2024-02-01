@@ -2,6 +2,7 @@
 
 namespace Sofa\Eloquence\Relations;
 
+use Hash;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use LogicException;
 use Illuminate\Database\Query\Builder;
@@ -14,8 +15,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\Relations\HasOneOrMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphOneOrMany;
+use Illuminate\Support\Str;
 use Sofa\Eloquence\Contracts\Relations\Joiner as JoinerContract;
 
 class Joiner implements JoinerContract
@@ -58,12 +62,13 @@ class Joiner implements JoinerContract
         $related = $this->model;
 
         $arr = explode('.', $target);
+
         foreach ($arr as $key => $segment) {
             $par = "";
             if($key != 0){
                 $par = $arr[$key - 1];
             }
-            $related = $this->joinSegment($related, $segment, $type, $par);
+            $related = $this->joinSegment($related, $segment, $type, $par, $arr);
         }
 
         return $related;
@@ -99,20 +104,39 @@ class Joiner implements JoinerContract
      * @param  string $type
      * @return Model
      */
-    protected function joinSegment(Model $parent, $segment, $type, $par = "")
+    protected function joinSegment(Model $parent, $segment, $type, $par = "", $relationArr = [])
     {
         $relation = $parent->{$segment}();
         $related = $relation->getRelated();
         $table = $related->getTable();
+
         if($relation instanceof BelongsTo){
             $table = $related->getTable() . ' as ' .$relation->getRelationName() ;
+        }
+
+        if($relation instanceof HasOne){
+            $guess = Str::camel(Str::plural(class_basename($related)));
+            $parentName = Str::camel(class_basename($parent));
+            $guess = Str::camel(str_replace($parentName, "", $guess));
+            $relationName = $guess;
+
+            $table = $related->getTable() . ' as ' .$relationName;
+        }
+
+        if($relation instanceof HasMany){
+            $guess = Str::camel(Str::plural(class_basename($related)));
+            $parentName = Str::camel(class_basename($parent));
+            $guess = Str::camel(str_replace($parentName, "", $guess));
+            $relationName = $guess;
+
+            $table = $related->getTable() . ' as ' .$relationName;
         }
 
         if ($relation instanceof BelongsToMany || $relation instanceof HasManyThrough) {
             $this->joinIntermediate($parent, $relation, $type);
         }
 
-        if (!$this->alreadyJoined($join = $this->getJoinClause($parent, $relation, $table, $type, $par))) {
+        if (!$this->alreadyJoined($join = $this->getJoinClause($parent, $relation, $table, $type, $par, $segment, $relationArr))) {
             $this->query->joins[] = $join;
         }
 
@@ -139,9 +163,9 @@ class Joiner implements JoinerContract
      * @param  string $table
      * @return Join
      */
-    protected function getJoinClause(Model $parent, Relation $relation, $table, $type, $par = "")
+    protected function getJoinClause(Model $parent, Relation $relation, $table, $type, $par = "", $segment, $relationArr = [])
     {
-        [$fk, $pk] = $this->getJoinKeys($relation, $par);
+        [$fk, $pk] = $this->getJoinKeys($relation, $par, $segment, $relationArr);
 
         $join = (new Join($this->query, $type, $table))->on($fk, '=', $pk);
 
@@ -193,10 +217,37 @@ class Joiner implements JoinerContract
      *
      * @throws LogicException
      */
-    protected function getJoinKeys(Relation $relation, $par)
+    protected function getJoinKeys(Relation $relation, $par = "", $segment, $relationArr = [])
     {
         if ($relation instanceof MorphTo) {
             throw new LogicException('MorphTo relation cannot be joined.');
+        }
+
+        if($relation instanceof HasOne){
+            $related = $relation->getRelated();
+            $parent = $relation->getParent();
+            $guess = Str::camel(Str::plural(class_basename($related)));
+            $parentName = Str::camel(class_basename($parent));
+            $guess = Str::camel(str_replace($parentName, "", $guess));
+            $relationName = $guess;
+
+            return [$relationName.'.'.$relation->getForeignKeyName(), $relation->getQualifiedParentKeyName()];
+        }
+
+        if($relation instanceof HasMany){
+            $related = $relation->getRelated();
+            $parent = $relation->getParent();
+            $guess = Str::camel(Str::plural(class_basename($related)));
+            $parentName = Str::camel(class_basename($parent));
+            $guess = Str::camel(str_replace($parentName, "", $guess));
+            $relationName = $guess;
+
+            $qualifiedParentKeyName = $relation->getQualifiedParentKeyName();
+            if ($segment != $relationArr[0]){
+                $qualifiedParentKeyName = $relationArr[0] . "." . $relation->getLocalKeyName();
+            }
+
+            return [$relationName.'.'.$relation->getForeignKeyName(), $qualifiedParentKeyName];
         }
 
         if ($relation instanceof HasOneOrMany) {
